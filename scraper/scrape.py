@@ -1,209 +1,110 @@
-from curl_cffi import requests
+import requests
 from bs4 import BeautifulSoup
-import json, re, time
+import json
+import time
+import random
 from datetime import datetime
 
-BASE_URL = "https://news.bjx.com.cn/topics/chunengzhongbiao/" 
+class EnergyBidSpider:
+    """
+    北极星储能网中标信息爬虫（仅供学习交流）
+    注意：实际页面结构可能变化，需根据最新DOM调整选择器
+    """
 
-def get_article_list():
-    try:
-        resp = requests.get(BASE_URL, impersonate="chrome110", timeout=15)
-        resp.encoding = 'utf-8'
-        print(f"状态码: {resp.status_code}")
-        print(f"页面长度: {len(resp.text)}")
-    except Exception as e:
-        print(f"请求失败：{e}")
-        return []
-
-    soup = BeautifulSoup(resp.text, 'lxml')
-    articles = []
-    items = []
-
-    # 1. 尝试已知的选择器
-    selectors = [
-        'div.list_left li',
-        'div.list_right li',
-        'ul.list li',
-        'div.newslist li',
-        'div.article-list li',
-        'div.list_box li',
-        '.list-con li',
-        '.list li',
-    ]
-    for sel in selectors:
-        items = soup.select(sel)
-        if items:
-            print(f"使用选择器: {sel}，找到 {len(items)} 个列表项")
-            break
-
-    # 2. 如果都没找到，启用通用链接提取
-    if not items:
-        print("未匹配到专用列表项，启用通用链接提取...")
-        all_a = soup.find_all('a', href=True)
-        print(f"调试：页面中共有 {len(all_a)} 个链接")
-        # 打印前30个链接，方便我们分析
-        for i, a in enumerate(all_a[:30]):
-            href = a['href']
-            title = a.get_text(strip=True)[:60]
-            print(f"  [{i+1}] {title}  -> {href[:100]}")
-        # 过滤出可能的文章链接：href 包含 /html/ 且标题非空
-        candidate = []
-        for a in all_a:
-            href = a.get('href', '')
-            title = a.get_text(strip=True)
-            if not title:
-                continue
-            # 常见文章链接格式
-            if '/html/' in href and title:
-                candidate.append(a)
-        print(f"过滤后得到 {len(candidate)} 个候选文章链接")
-        items = candidate
-
-    # 3. 从 items 中提取 title, link, date
-    for item in items:
-        # 如果是 a 标签本身（通用模式），直接取
-        if item.name == 'a':
-            a_tag = item
-        else:
-            a_tag = item.find('a')
-        if not a_tag:
-            continue
-        title = a_tag.get_text(strip=True)
-        link = a_tag.get('href', '')
-        if not link:
-            continue
-        if not link.startswith('http'):
-            if link.startswith('/'):
-                link = 'https://chuneng.bjx.com.cn' + link
-            else:
-                link = 'https://chuneng.bjx.com.cn/' + link
-
-        # 提取日期
-        date_str = ''
-        if item.name != 'a':
-            date_span = (
-                item.find('span', class_='date') or
-                item.find('span', class_='time') or
-                item.find('span', class_='list_time') or
-                item.find('em') or
-                item.find('i')
-            )
-            if date_span:
-                date_str = date_span.get_text(strip=True)
-        # 如果日期中没有年份，尝试从文本中提取
-        if not date_str:
-            # 简单的年份检测
-            if '2025' in title or '2026' in title:
-                date_str = '2025'
-            else:
-                date_str = datetime.now().strftime('%Y-%m-%d')  # 兜底用当天
-
-        # 只收集2025年及以后的
-        if '2025' in date_str or '2026' in date_str or '2025' in title:
-            articles.append({'title': title, 'link': link, 'date': date_str})
-
-    return articles
-
-def parse_detail(article):
-    try:
-        resp = requests.get(article['link'], impersonate="chrome110", timeout=15)
-        resp.encoding = 'utf-8'
-    except Exception as e:
-        print(f"详情页失败: {e}")
-        return None
-
-    soup = BeautifulSoup(resp.text, 'lxml')
-    content_div = (
-        soup.find('div', class_='article-body') or
-        soup.find('div', class_='article-content') or
-        soup.find('div', class_='article_con') or
-        soup.find('div', class_='content') or
-        soup.find('article')
-    )
-    if not content_div:
-        return None
-
-    text = content_div.get_text('\n', strip=True)
-
-    winner = '未知'
-    for pat in [
-        r'中标(?:人|单位|候选人)[：:]\s*(\S+?)(?:[。，；\s]|$)',
-        r'第一中标候选人[：:]\s*(\S+?)(?:[。，；\s]|$)',
-    ]:
-        m = re.search(pat, text)
-        if m:
-            winner = m.group(1).strip()
-            break
-
-    amount = '未知'
-    for pat in [
-        r'中标(?:金额|价|总价)[：:]\s*([\d,.]+)\s*万[元]?',
-        r'投标报价[：:]\s*([\d,.]+)\s*万[元]?',
-    ]:
-        m = re.search(pat, text)
-        if m:
-            amount = m.group(1) + '万元'
-            break
-
-    participants = []
-    part_match = re.search(
-        r'(?:投标人|参与投标的单位|投标单位)[：:]\s*([\s\S]+?)(?=\n\s*(?:招标人|联系方式|$)|。\n)',
-        text
-    )
-    if part_match:
-        names = re.split(r'[、，,;\n]', part_match.group(1))
-        for n in names:
-            n = n.strip().rstrip('。，,;')
-            if n and ('公司' in n or '集团' in n) and len(n) < 80:
-                participants.append(n)
-
-    if not participants:
-        for li in content_div.find_all(['li', 'p', 'div']):
-            txt = li.get_text(strip=True)
-            if re.match(r'\d+[\.、,）)]\s*\S+公司', txt) and len(txt) < 80:
-                name = re.sub(r'^\d+[\.、,）)]\s*', '', txt)
-                participants.append(name)
-
-    participants = list(dict.fromkeys(participants))
-
-    return {
-        'title': soup.title.string.strip() if soup.title else article['title'],
-        'winner': winner,
-        'amount': amount,
-        'participants': participants,
-        'link': article['link'],
-        'date': article.get('date', datetime.now().strftime('%Y-%m-%d'))
+    BASE_URL = "https://chuneng.bjx.com.cn"
+    HEADERS = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                       "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        "Referer": "https://chuneng.bjx.com.cn/",
     }
 
-def main():
-    articles = get_article_list()
-    print(f"共筛选出 {len(articles)} 篇2025后文章")
-    new_data = []
-    for i, art in enumerate(articles[:30]):
-        print(f"处理 {i+1}: {art['title'][:40]}")
-        detail = parse_detail(art)
-        if detail:
-            new_data.append(detail)
-        time.sleep(3)
+    def __init__(self):
+        self.session = requests.Session()
+        self.session.headers.update(self.HEADERS)
+        self.results = []
 
-    try:
-        with open('data.json', 'r', encoding='utf-8') as f:
-            old_data = json.load(f)
-    except:
-        old_data = []
+    def fetch_list(self, page=1):
+        """获取中标公示列表页"""
+        # TODO: 请根据实际URL结构调整
+        url = f"{self.BASE_URL}/zhongbiao/list_{page}.html"
+        try:
+            resp = self.session.get(url, timeout=15)
+            resp.encoding = 'utf-8'
+            return resp.text
+        except Exception as e:
+            print(f"[ERROR] 请求列表页失败: {e}")
+            return None
 
-    old_links = {item['link'] for item in old_data}
-    added = 0
-    for item in new_data:
-        if item['link'] not in old_links:
-            old_data.insert(0, item)
-            added += 1
+    def parse_list(self, html):
+        """解析列表页，提取详情页链接"""
+        soup = BeautifulSoup(html, 'html.parser')
+        items = []
+        # TODO: 根据实际HTML结构修改选择器
+        for tag in soup.select("ul.list-item li a"):
+            title = tag.get_text(strip=True)
+            href = tag.get("href", "")
+            # 过滤2025年大型储能相关
+            if "2025" in title and ("储能" in title or "中标" in title):
+                items.append({"title": title, "url": href})
+        return items
 
-    old_data = old_data[:500]
-    with open('data.json', 'w', encoding='utf-8') as f:
-        json.dump(old_data, f, ensure_ascii=False, indent=2)
+    def parse_detail(self, url):
+        """解析详情页，提取中标单位、金额、参标单位"""
+        try:
+            resp = self.session.get(url, timeout=15)
+            resp.encoding = 'utf-8'
+            soup = BeautifulSoup(resp.text, 'html.parser')
 
-    print(f"\n新增 {added} 条，共 {len(old_data)} 条")
+            # TODO: 以下为示例选择器，必须根据实际页面调整！
+            content = soup.select_one("div.article-content")
+            text = content.get_text("\n", strip=True) if content else ""
 
-if __name__ == '__main__':
-    main()
+            record = {
+                "title": soup.select_one("h1").get_text(strip=True) if soup.select_one("h1") else "",
+                "url": url,
+                "winner": self._extract_field(text, ["中标人", "中标单位", "中标候选人"]),
+                "amount": self._extract_field(text, ["中标金额", "中标价格", "投标报价"]),
+                "participants": self._extract_field(text, ["投标人", "参标单位", "候选单位"]),
+                "scrape_time": datetime.now().isoformat(),
+            }
+            return record
+        except Exception as e:
+            print(f"[ERROR] 解析详情失败 {url}: {e}")
+            return None
+
+    @staticmethod
+    def _extract_field(text, keywords):
+        """从文本中按关键词提取字段值"""
+        for kw in keywords:
+            for line in text.split("\n"):
+                if kw in line:
+                    return line.replace(kw, "").strip(":： ").strip()
+        return "未提取到"
+
+    def run(self, max_pages=5):
+        """主运行流程"""
+        for page in range(1, max_pages + 1):
+            print(f"[INFO] 正在爬取第 {page} 页...")
+            html = self.fetch_list(page)
+            if not html:
+                continue
+            items = self.parse_list(html)
+            for item in items:
+                detail = self.parse_detail(item["url"])
+                if detail:
+                    self.results.append(detail)
+                # 礼貌延迟，避免被封
+                time.sleep(random.uniform(2, 5))
+            time.sleep(random.uniform(3, 6))
+
+        # 保存结果
+        with open("data/bids_2025.json", "w", encoding="utf-8") as f:
+            json.dump(self.results, f, ensure_ascii=False, indent=2)
+        print(f"[DONE] 共采集 {len(self.results)} 条记录")
+        return self.results
+
+
+if __name__ == "__main__":
+    spider = EnergyBidSpider()
+    spider.run(max_pages=3)
