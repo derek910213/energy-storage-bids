@@ -99,6 +99,8 @@ class EnergyBidSpider:
             time.sleep(random.uniform(3, 6))
 
         # 保存结果
+        import os
+        os.makedirs("data", exist_ok=True)
         with open("data/bids_2025.json", "w", encoding="utf-8") as f:
             json.dump(self.results, f, ensure_ascii=False, indent=2)
         print(f"[DONE] 共采集 {len(self.results)} 条记录")
