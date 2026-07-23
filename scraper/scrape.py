@@ -1,47 +1,71 @@
 from curl_cffi import requests
 from bs4 import BeautifulSoup
-import json
-import re
-import time
+import json, re, time
 from datetime import datetime
 
-# 注意：这里不再用 requests，而是 curl_cffi.requests，它能模拟浏览器的 TLS 指纹
-BASE_URL = "https://news.bjx.com.cn/topics/chunengzhongbiao/"
+BASE_URL = "https://news.bjx.com.cn/topics/chunengzhongbiao/" 
 
 def get_article_list():
     try:
-        # impersonate 参数模拟 Chrome 浏览器
         resp = requests.get(BASE_URL, impersonate="chrome110", timeout=15)
         resp.encoding = 'utf-8'
         print(f"状态码: {resp.status_code}")
         print(f"页面长度: {len(resp.text)}")
     except Exception as e:
-        print(f"请求列表页失败：{e}")
+        print(f"请求失败：{e}")
         return []
 
     soup = BeautifulSoup(resp.text, 'lxml')
     articles = []
+    items = []
 
-    # 尝试多种常见的列表选择器
+    # 1. 尝试已知的选择器
     selectors = [
         'div.list_left li',
         'div.list_right li',
         'ul.list li',
-        'div.list li',
-        '.list-con li',
-        '.list_box li',
+        'div.newslist li',
         'div.article-list li',
-        'div.news_list li'
+        'div.list_box li',
+        '.list-con li',
+        '.list li',
     ]
-    items = []
     for sel in selectors:
         items = soup.select(sel)
         if items:
+            print(f"使用选择器: {sel}，找到 {len(items)} 个列表项")
             break
 
-    print(f"找到 {len(items)} 个列表项")
+    # 2. 如果都没找到，启用通用链接提取
+    if not items:
+        print("未匹配到专用列表项，启用通用链接提取...")
+        all_a = soup.find_all('a', href=True)
+        print(f"调试：页面中共有 {len(all_a)} 个链接")
+        # 打印前30个链接，方便我们分析
+        for i, a in enumerate(all_a[:30]):
+            href = a['href']
+            title = a.get_text(strip=True)[:60]
+            print(f"  [{i+1}] {title}  -> {href[:100]}")
+        # 过滤出可能的文章链接：href 包含 /html/ 且标题非空
+        candidate = []
+        for a in all_a:
+            href = a.get('href', '')
+            title = a.get_text(strip=True)
+            if not title:
+                continue
+            # 常见文章链接格式
+            if '/html/' in href and title:
+                candidate.append(a)
+        print(f"过滤后得到 {len(candidate)} 个候选文章链接")
+        items = candidate
+
+    # 3. 从 items 中提取 title, link, date
     for item in items:
-        a_tag = item.find('a')
+        # 如果是 a 标签本身（通用模式），直接取
+        if item.name == 'a':
+            a_tag = item
+        else:
+            a_tag = item.find('a')
         if not a_tag:
             continue
         title = a_tag.get_text(strip=True)
@@ -54,19 +78,29 @@ def get_article_list():
             else:
                 link = 'https://chuneng.bjx.com.cn/' + link
 
-        date_span = (
-            item.find('span', class_='date') or
-            item.find('span', class_='time') or
-            item.find('span', class_='list_time') or
-            item.find('em') or
-            item.find('i')
-        )
-        date_str = date_span.get_text(strip=True) if date_span else ''
+        # 提取日期
+        date_str = ''
+        if item.name != 'a':
+            date_span = (
+                item.find('span', class_='date') or
+                item.find('span', class_='time') or
+                item.find('span', class_='list_time') or
+                item.find('em') or
+                item.find('i')
+            )
+            if date_span:
+                date_str = date_span.get_text(strip=True)
+        # 如果日期中没有年份，尝试从文本中提取
+        if not date_str:
+            # 简单的年份检测
+            if '2025' in title or '2026' in title:
+                date_str = '2025'
+            else:
+                date_str = datetime.now().strftime('%Y-%m-%d')  # 兜底用当天
 
-        if date_str and ('2025' in date_str or '2026' in date_str):
+        # 只收集2025年及以后的
+        if '2025' in date_str or '2026' in date_str or '2025' in title:
             articles.append({'title': title, 'link': link, 'date': date_str})
-        elif '2025' in title or '25年' in title:
-            articles.append({'title': title, 'link': link, 'date': '2025'})
 
     return articles
 
@@ -84,7 +118,6 @@ def parse_detail(article):
         soup.find('div', class_='article-content') or
         soup.find('div', class_='article_con') or
         soup.find('div', class_='content') or
-        soup.find('div', class_='article') or
         soup.find('article')
     )
     if not content_div:
@@ -144,7 +177,7 @@ def parse_detail(article):
 
 def main():
     articles = get_article_list()
-    print(f"共找到 {len(articles)} 篇")
+    print(f"共筛选出 {len(articles)} 篇2025后文章")
     new_data = []
     for i, art in enumerate(articles[:30]):
         print(f"处理 {i+1}: {art['title'][:40]}")
