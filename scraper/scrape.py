@@ -10,7 +10,7 @@ HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
     "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
 }
-BASE_URL = "https://chuneng.bjx.com.cn/zhongbiao/"
+BASE_URL = "https://chuneng.bjx.com.cn/zhongbiao/list-1.html"
 
 
 def get_article_list():
