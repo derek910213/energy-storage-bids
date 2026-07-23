@@ -6,7 +6,7 @@ import time
 from datetime import datetime
 
 # 注意：这里不再用 requests，而是 curl_cffi.requests，它能模拟浏览器的 TLS 指纹
-BASE_URL = "https://chuneng.bjx.com.cn/zhongbiao/"
+BASE_URL = "https://news.bjx.com.cn/topics/chunengzhongbiao/"
 
 def get_article_list():
     try:
