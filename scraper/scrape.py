@@ -1,4 +1,4 @@
-def parse_list(page_url):https://ggzyjy.shandong.gov.cn/search.jspx?q=%25E4%25B8%25AD%25E6%25A0%2587%25E5%2585%25AC%25E5%2591%258A
+def parse_list(page_url):base_url = "https://ggzyjy.shandong.gov.cn/search.jspx?q=%25E4%25B8%25AD%25E6%25A0%2587%25E5%2585%25AC%25E5%2591%258A"
     """
     解析山东省公共资源交易网的搜索结果页
     """
