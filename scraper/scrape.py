@@ -4,8 +4,8 @@ import json
 import os
 import time  # 【关键】这里补充了 time 模块，用于重试等待
 
-# 目标网址
-base_url = "https://ggzyjy.shandong.gov.cn/search.jspx?q=%25E4%25B8%25AD%25E6%25A0%2587%25E5%2585%25AC%25E5%2591%258A"
+# 目标网址：
+base_url = "http://www.ccgp.gov.cn/cggg/zygg/zhongbgg/"
 
 # 请求头
 headers = {
