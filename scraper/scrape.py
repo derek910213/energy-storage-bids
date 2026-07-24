@@ -55,4 +55,4 @@ if __name__ == '__main__':
         os.makedirs("data", exist_ok=True)
         with open("data/bids_2025.json", "w", encoding="utf-8") as f:
             json.dump(results, f, ensure_ascii=False, indent=2)
-        print(f"[DONE] 成功保存 {len(results)}
+       print(f"[DONE] 成功保存 {len(results)} 条数据到 data/bids_2025.json")
